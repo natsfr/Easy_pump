@@ -13,7 +13,9 @@ RPI_PICO_ISR_Timer ISR_timer;
   #define LED_BUILTIN       25
 #endif
 
-#define PUMP_IO             1
+#define PUMP_IO             15
+
+#define FORCE_PUMP          16
 
 #define LED_TOGGLE_INTERVAL_MS        1000L
 #define TIMER_INTERVAL_MS             1L
@@ -26,25 +28,27 @@ bool TimerHandler(struct repeating_timer *t)
 
   return true;
 }
-
+static bool toggle  = false;
 bool run_pump = false;
 bool save_counter = false;
-uint32_t time_trigger = 172800; // 48 hours in seconds
+uint32_t time_trigger = 259200; // 72 hours in seconds
+//uint32_t time_trigger = 300; // 5 minutes testing
 uint32_t time_counter = 0; // 1 second increment
 uint8_t hours_count = 0;
 uint32_t hours_edge = 0;
 uint32_t address = 0;
 
-void increment_time() {
-  static bool toggle  = false;
+bool reset_counter = false;
+bool reset_prev_state = false;
 
+void increment_time() {
   digitalWrite(LED_BUILTIN, toggle);
   toggle = !toggle;
 
   time_counter += 10;
   hours_edge += 10;
 
-  if (time_counter >= 172800) {
+  if (time_counter >= time_trigger) {
     run_pump = true;
     time_counter = 0;
     hours_count = 0;
@@ -64,7 +68,7 @@ void write_to_flash() {
 
 void delay_run_pump() {
   digitalWrite(PUMP_IO, 1);
-  delay(30000);
+  delay(100000); // 68 second for about 2 liter
   digitalWrite(PUMP_IO, 0);
 }
 
@@ -74,6 +78,8 @@ void setup() {
     
     pinMode(PUMP_IO, OUTPUT);
     digitalWrite(PUMP_IO, 0);
+
+    pinMode(FORCE_PUMP, INPUT_PULLUP);
 
     /*
      * We try to restore hours counter in case of previous failure.
@@ -97,4 +103,21 @@ void loop() {
       delay_run_pump();
       run_pump = false;
     }
+    uint8_t force_pump = digitalRead(FORCE_PUMP);
+    if(force_pump == 0) {
+      digitalWrite(PUMP_IO, 1);
+      reset_counter = true;
+      toggle = ~toggle;
+      digitalWrite(LED_BUILTIN, toggle);
+    } else {
+      digitalWrite(PUMP_IO, 0);
+      reset_counter = false;
+    }
+    if(reset_counter == false && reset_prev_state == true) {
+      hours_count = 0;
+      EEPROM.write(address, hours_count);
+      EEPROM.commit();
+      digitalWrite(LED_BUILTIN, 0);
+    }
+    reset_prev_state = reset_counter;
 }
